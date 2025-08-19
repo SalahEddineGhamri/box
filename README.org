@@ -1,0 +1,20 @@
+* Box Plugin
+
+Implements a command/input box (minibuffer/quickfix style) for Pragtical.
+
+** Features
+- Open/close box
+- Set/get content
+- UI integration (planned)
+- Keybindings (planned)
+
+** Usage
+Load the plugin in your `init.lua`:
+#+BEGIN_SRC lua
+require('plugins.box')
+#+END_SRC
+
+** TODO
+- Implement UI rendering
+- Add keybindings
+- Integrate with command system
