@@ -1,77 +1,99 @@
 -- mod-version:3
--- Box Plugin for Pragtical
--- Implements a command/input box (minibuffer/quickfix style)
-
 local core = require "core"
-local common = require "core.common"
+local style = require "core.style"
+local CommandView = require "core.commandview"
+
+---@class core.box : core.commandview
+local Box = CommandView:extend()
+
+function Box:__tostring() return "Box" end
+
+function Box:new()
+  Box.super.new(self)
+  self.size.y = 0
+end
+
+function Box:enter(label, ...)
+  self.size.y = 60
+  return Box.super.enter(self, "[BOX] " .. label, ...)
+end
+
+function Box:exit(submitted, inexplicit)
+  Box.super.exit(self, submitted, inexplicit)
+  self.size.y = 0
+end
+
+function Box:get_name()
+  return "Box"
+end
+
+function Box:get_min_height()
+  return 60
+end
+
+function Box:update()
+  CommandView.update(self)
+  if self.size.y > 0 and self.size.y < 60 then
+    self.size.y = 60
+  end
+end
+
+function Box:draw()
+  if self.size.y <= 0 then
+    return
+  end
+
+  local renderer = require "renderer"
+  renderer.draw_rect(self.position.x, self.position.y, self.size.x, self.size.y, style.background2)
+
+  CommandView.draw(self)
+end
+
+-- Initialize the box view
+core.add_thread(function()
+  while not core.root_view do
+     coroutine.yield()
+  end
+
+  for _ = 1, 10 do coroutine.yield() end
+
+  local box = Box()
+  core.box_view = box
+
+  local active_node = core.root_view:get_active_node()
+  local new_node = active_node:split("down", core.box_view, {y = true})
+
+  if new_node and new_node.b then
+    new_node:set_split(0.95)
+  end
+
+end)
+
 local command = require "core.command"
-local command_view = require "plugins.box.commandview_patch"
 
+local function show_box_command()
+  if not core.box_view then
+    return
+  end
 
-local Box = {}
-Box.active = false
-Box.prompt = ""
-Box.items = {}
-Box.on_select = nil
-
-function Box.open(prompt, items, on_select)
-  Box.active = true
-  Box.prompt = prompt or "Box"
-  Box.items = items or {}
-  Box.on_select = on_select
-
-  command_view:enter(Box.prompt, {
-    submit = function(text, item)
-      if Box.on_select then
-        Box.on_select(item and item.text or text)
-      end
-      Box.close()
+  local options = {
+    submit = function(text, suggestion)
+      core.log("User submitted: " .. text)
     end,
     suggest = function(text)
-      return Box.fuzzy_filter(Box.items, text)
+      return { "example:one", "example:two", "another:example" }
     end,
-    cancel = function()
-      Box.close()
-    end,
-  })
-end
+    show_suggestions = true,
+  }
 
-function Box.close()
-  Box.active = false
-  Box.prompt = ""
-  Box.items = {}
-  Box.on_select = nil
-end
-
-function Box.fuzzy_filter(items, query)
-  if not query or query == "" then return items end
-  local filtered = {}
-  local q = query:lower()
-  for _, item in ipairs(items) do
-    local txt = type(item) == "table" and item.text or item
-    if txt:lower():find(q, 1, true) then
-      table.insert(filtered, { text = txt })
-    end
-  end
-  return filtered
+  core.box_view:enter("box >", options)
+  core.set_active_view(core.box_view)
 end
 
 command.add(nil, {
-  ["box:select-fruit"] = function()
-    Box.api.open("Select Fruit", {"Apple","Banana","Cherry"}, function(choice)
-      if choice then
-        core.log("You picked: %s", choice)
-      else
-        core.log("No fruit selected")
-      end
-    end)
-  end,
+  ["box:open"] = show_box_command,
 })
 
-
-Box.api = {
-  open = Box.open,
-  close = Box.close
-}
-
 return Box
+
+
