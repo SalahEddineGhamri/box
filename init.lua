@@ -1,7 +1,14 @@
 -- mod-version:3
+-- TODO: selection is not changing based on the user input 
+-- TOOO: box can show text only no user prompt, the size changes based on the text
+-- TODO: make API clear and can be made usable 
+
 local core = require "core"
 local style = require "core.style"
 local CommandView = require "core.commandview"
+local common = require "core.common"
+
+local max_suggestions = 10
 
 ---@class core.box : core.commandview
 local Box = CommandView:extend()
@@ -10,43 +17,93 @@ function Box:__tostring() return "Box" end
 
 function Box:new()
   Box.super.new(self)
-  self.size.y = 0
-end
-
-function Box:enter(label, ...)
-  self.size.y = 60
-  return Box.super.enter(self, "[BOX] " .. label, ...)
-end
-
-function Box:exit(submitted, inexplicit)
-  Box.super.exit(self, submitted, inexplicit)
-  self.size.y = 0
 end
 
 function Box:get_name()
   return "Box"
 end
 
-function Box:get_min_height()
-  return 60
+function Box:get_line_screen_position(line, col)
+  local x = Box.super.get_line_screen_position(self, 1, col)
+  local _, y = self:get_content_offset()
+  local lh = self:get_line_height()
+  return x, y -- y + (self.size.y - lh) / 2
+end
+
+function Box:draw_background(color)
+  local x, y = self.position.x , self.position.y
+  local w, h = self.size.x, self.size.y
+  --local color = { 255, 0, 0, 255 }
+  renderer.draw_rect(x, y, w, h, color)
 end
 
 function Box:update()
-  CommandView.update(self)
-  if self.size.y > 0 and self.size.y < 60 then
-    self.size.y = 60
+  Box.super.update(self)
+
+  local target_y = 0
+  if core.active_view == self then
+    target_y = max_suggestions * self:get_suggestion_line_height()
   end
+
+  self:move_towards(self.size, "y", target_y, nil, "box")
+end
+
+function Box:move_suggestion_idx(dir)
+   Box.super.move_suggestion_idx(self, -dir)
+end
+
+function Box:draw_line_gutter(_, x, y)
+  local yoffset = self:get_line_text_y_offset()
+  local pos = self.position
+  local color = common.lerp(style.text, style.accent, self.gutter_text_brightness / 100)
+  core.push_clip_rect(pos.x, pos.y, self:get_gutter_width(), self.size.y)
+  x = x + style.padding.x
+  renderer.draw_text(self:get_font(), self.label, x, y + yoffset, color)
+  core.pop_clip_rect()
+  return self:get_line_height()
+end
+
+local function draw_suggestions_box(self)
+  if not self.state.show_suggestions or #self.suggestions == 0 then
+    return
+  end
+  local lh = self:get_suggestion_line_height()
+  local dh = style.divider_size
+  local x = self.position.x
+  local ry = self.position.y + self:get_line_height()
+  local rw = self.size.x
+  local h = max_suggestions * lh
+
+  core.push_clip_rect(x, ry, rw, h)
+  renderer.draw_rect(x, ry, rw, h, style.background3)
+  renderer.draw_rect(x, ry, rw, dh, style.divider)
+
+  local first = math.max(self.suggestions_offset or 1, 1)
+  local last = math.min(first + max_suggestions - 1, #self.suggestions)
+
+  if self.suggestion_idx and self.suggestion_idx >= first and self.suggestion_idx <= last then
+    local sy = ry + (self.suggestion_idx - first) * lh
+    renderer.draw_rect(x, sy, rw, lh, style.line_highlight)
+  end
+
+  for i = first, last do
+    local item = self.suggestions[i]
+    local color = (i == self.suggestion_idx) and style.accent or style.text
+    local sy = ry + (i - first) * lh
+    common.draw_text(self:get_font(), color, item.text, nil, x + 10, sy, 0, lh)
+    if item.info then
+      local w = rw - style.padding.x
+      common.draw_text(self:get_font(), style.dim, item.info, "right", x, sy, w, lh)
+    end
+  end
+  core.pop_clip_rect()
 end
 
 function Box:draw()
-  if self.size.y <= 0 then
-    return
+  CommandView.super.draw(self)
+  if self.state.show_suggestions then
+    core.root_view:defer_draw(draw_suggestions_box, self)
   end
-
-  local renderer = require "renderer"
-  renderer.draw_rect(self.position.x, self.position.y, self.size.x, self.size.y, style.background2)
-
-  CommandView.draw(self)
 end
 
 -- Initialize the box view
@@ -61,12 +118,7 @@ core.add_thread(function()
   core.box_view = box
 
   local active_node = core.root_view:get_active_node()
-  local new_node = active_node:split("down", core.box_view, {y = true})
-
-  if new_node and new_node.b then
-    new_node:set_split(0.95)
-  end
-
+  local new_node = active_node:split("down", core.box_view, {y=true})
 end)
 
 local command = require "core.command"
@@ -86,7 +138,7 @@ local function show_box_command()
     show_suggestions = true,
   }
 
-  core.box_view:enter("box >", options)
+  core.box_view:enter("box ", options)
   core.set_active_view(core.box_view)
 end
 
@@ -95,5 +147,4 @@ command.add(nil, {
 })
 
 return Box
-
 
