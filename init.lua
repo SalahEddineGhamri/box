@@ -1,14 +1,26 @@
 -- mod-version:3
--- TODO: selection is not changing based on the user input 
+-- Author: S.Ghamri----------------------------------------------------------------
+
+-- TODO: mouse selection needs checking
+-- TODO: suggestions navigation is not working correctly
+-- TODO: create API to:
+--       - set the label
+--       - get the suggestions
+-- TODO: use it to create soryn file finder
+
 -- TOOO: box can show text only no user prompt, the size changes based on the text
 -- TODO: make API clear and can be made usable 
+
+-- DONE: enhance the look and the feeling. move suggestions to the right
+-- DONE: fuzzy search is not working 
+-----------------------------------------------------------------------------------
 
 local core = require "core"
 local style = require "core.style"
 local CommandView = require "core.commandview"
 local common = require "core.common"
 
-local max_suggestions = 10
+local max_suggestions = 3
 
 ---@class core.box : core.commandview
 local Box = CommandView:extend()
@@ -19,15 +31,15 @@ function Box:new()
   Box.super.new(self)
 end
 
-function Box:get_name()
-  return "Box"
+function Box:set_label(label)
+  self.label = label
 end
 
 function Box:get_line_screen_position(line, col)
   local x = Box.super.get_line_screen_position(self, 1, col)
   local _, y = self:get_content_offset()
   local lh = self:get_line_height()
-  return x, y -- y + (self.size.y - lh) / 2
+  return x, y
 end
 
 function Box:draw_background(color)
@@ -49,12 +61,40 @@ function Box:update()
 end
 
 function Box:move_suggestion_idx(dir)
-   Box.super.move_suggestion_idx(self, -dir)
+  local s = self.suggestions or {}
+  local count = math.min(#s, max_suggestions)
+  if count == 0 then return end
+
+  local n = self.suggestion_idx - dir -- invert direction
+  if self.state.wrap then
+    n = (n - 1) % count + 1
+  else
+    n = math.max(1, math.min(n, count))
+  end
+
+  local current_text = self:get_text()
+  local current_suggestion = s[self.suggestion_idx] and s[self.suggestion_idx].text or ""
+
+  if n == count then -- reached bottom
+    self.save_suggestion = current_text
+  end
+
+  self.suggestion_idx = n
+  local new_text = s[n].text or self.save_suggestion or ""
+  self:set_text(new_text)
+  self.doc:set_selection(1, #current_text + 1, 1, math.huge)
+
+  if self.state.show_suggestions then
+    self.state.suggest(new_text)
+  end
+
+  self.last_change_id = self.doc:get_change_id()
 end
 
 function Box:draw_line_gutter(_, x, y)
   local yoffset = self:get_line_text_y_offset()
   local pos = self.position
+  self.gutter_text_brightness = 70
   local color = common.lerp(style.text, style.accent, self.gutter_text_brightness / 100)
   core.push_clip_rect(pos.x, pos.y, self:get_gutter_width(), self.size.y)
   x = x + style.padding.x
@@ -73,6 +113,7 @@ local function draw_suggestions_box(self)
   local ry = self.position.y + self:get_line_height()
   local rw = self.size.x
   local h = max_suggestions * lh
+  local x_offset = style.padding.x
 
   core.push_clip_rect(x, ry, rw, h)
   renderer.draw_rect(x, ry, rw, h, style.background3)
@@ -90,7 +131,7 @@ local function draw_suggestions_box(self)
     local item = self.suggestions[i]
     local color = (i == self.suggestion_idx) and style.accent or style.text
     local sy = ry + (i - first) * lh
-    common.draw_text(self:get_font(), color, item.text, nil, x + 10, sy, 0, lh)
+    common.draw_text(self:get_font(), color, item.text, nil, x + x_offset, sy, 0, lh)
     if item.info then
       local w = rw - style.padding.x
       common.draw_text(self:get_font(), style.dim, item.info, "right", x, sy, w, lh)
@@ -133,8 +174,15 @@ local function show_box_command()
       core.log("User submitted: " .. text)
     end,
     suggest = function(text)
-      return { "example:one", "example:two", "another:example" }
-    end,
+      local all_commands = { "example:one", "example:two", "another:example" }
+      local results = {}
+      for _, cmd in ipairs(all_commands) do
+        if cmd:find(text, 1, true) then
+           table.insert(results, cmd)
+        end
+      end
+      return results
+      end,
     show_suggestions = true,
   }
 
@@ -147,4 +195,3 @@ command.add(nil, {
 })
 
 return Box
-
