@@ -241,6 +241,7 @@ end)
 
 function Box:enter(label, opt)
     self.suggestions_offset = 1
+
     if opt and opt.label_fn then
         -- register label function
         self.label_fn = opt.label_fn
@@ -248,6 +249,19 @@ function Box:enter(label, opt)
 
     -- label has no effect if label_fn
    Box.super.enter(self, label, opt) 
+end
+
+function Box:submit()
+  local suggestion = self.suggestions[self.suggestion_idx] 
+  local text = self:get_text() 
+  if text == "" and suggestion then
+    text = suggestion.text
+  end
+  if self.state.validate(text, suggestion) then
+    local submit = self.state.submit
+    self:exit(true)
+    submit(text, suggestion)
+  end
 end
     
 
